@@ -17,6 +17,12 @@ on that file using the ``numpy.memmap`` subclass of ``numpy.ndarray``.
 This makes it possible to share a segment of data between all the
 worker processes.
 
+.. note::
+
+  The following only applies with the default ``"multiprocessing"`` backend. If
+  your code can release the GIL, then using ``backend="threading"`` is even
+  more efficient.
+
 
 Automated array to memmap conversion
 ------------------------------------
@@ -29,8 +35,18 @@ threshold on the size of the array::
   >>> from joblib.pool import has_shareable_memory
 
   >>> Parallel(n_jobs=2, max_nbytes=1e6)(
-  ...     delayed(has_shareable_memory)(np.ones(i)) for i in [1e2, 1e4, 1e6])
+  ...     delayed(has_shareable_memory)(np.ones(int(i)))
+  ...     for i in [1e2, 1e4, 1e6])
   [False, False, True]
+
+By default the data is dumped to the ``/dev/shm`` shared-memory partition if it
+exists and writeable (typically the case under Linux). Otherwise the operating
+system's temporary folder is used. The location of the temporary data files can
+be customized by passing a ``temp_folder`` argument to the ``Parallel``
+constructor.
+
+Passing ``max_nbytes=None`` makes it possible to disable the automated array to
+memmap conversion.
 
 
 Manual management of memmaped input data
@@ -116,8 +132,28 @@ Here is an example script on parallel processing with preallocated
    :language: python
    :linenos:
 
+.. warning::
+
+  Having concurrent workers write on overlapping shared memory data segments
+  for instance by using inplace operators and assignments on a `numpy.memmap`
+  instance can lead to data corruption as numpy does not offer atomic
+  operations. The previous example does not risk that issue as each task is
+  updating an exclusive segment of the shared result array.
+
+  Some C/C++ compilers offer lock-free atomic primitives such as add-and-fetch
+  or compare-and-swap that could be exposed to Python via CFFI_ for instance.
+  However providing numpy-aware atomic constructs is outside of the scope
+  of the joblib project.
+
+
+.. _CFFI: https://cffi.readthedocs.org
+
+
 A final note: don't forget to clean up any temporary folder when you are done
 with the computation::
 
   >>> import shutil
-  >>> shutil.rmtree(temp_folder)
+  >>> try:
+  ...     shutil.rmtree(temp_folder)
+  ... except OSError:
+  ...     pass  # this can sometimes fail under Windows

@@ -20,26 +20,10 @@ try:
 except:
     import pickle
 
-# Obtain possible configuration from the environment, assuming 1 (on)
-# by default, upon 0 set to None. Should instructively fail if some non
-# 0/1 value is set.
-multiprocessing = int(os.environ.get('JOBLIB_MULTIPROCESSING', 1)) or None
-if multiprocessing:
-    try:
-        import multiprocessing
-    except ImportError:
-        multiprocessing = None
-
-# 2nd stage: validate that locking is available on the system and
-#            issue a warning if not
-if multiprocessing:
-    try:
-        _sem = multiprocessing.Semaphore()
-        del _sem # cleanup
-        from .pool import MemmapingPool
-    except (ImportError, OSError) as e:
-        multiprocessing = None
-        warnings.warn('%s.  joblib will operate in serial mode' % (e,))
+from ._multiprocessing_helpers import mp
+if mp is not None:
+    from .pool import MemmapingPool
+    from multiprocessing.pool import ThreadPool
 
 from .format_stack import format_exc, format_outer_frames
 from .logger import Logger, short_format_time
@@ -47,14 +31,21 @@ from .my_exceptions import TransportableException, _mk_exception
 from .disk import memstr_to_kbytes
 from ._compat import _basestring
 
+
+VALID_BACKENDS = ['multiprocessing', 'threading']
+
+# Environment variables to protect against bad situations when nesting
+JOBLIB_SPAWNED_PROCESS = "__JOBLIB_SPAWNED_PARALLEL__"
+
+
 ###############################################################################
 # CPU that works also when multiprocessing is not installed (python2.5)
 def cpu_count():
     """ Return the number of CPUs.
     """
-    if multiprocessing is None:
+    if mp is None:
         return 1
-    return multiprocessing.cpu_count()
+    return mp.cpu_count()
 
 
 ###############################################################################
@@ -152,8 +143,38 @@ class CallBack(object):
 
     def __call__(self, out):
         self.parallel.print_progress(self.index)
-        if self.parallel._iterable:
+        if self.parallel._original_iterable:
             self.parallel.dispatch_next()
+
+
+class LockedIterator(object):
+    """Wrapper to protect a thread-unsafe iterable against concurrent access.
+
+    A Python generator is not thread-safe by default and will raise
+    ValueError("generator already executing") if two threads consume it
+    concurrently.
+
+    In joblib this could typically happen when the passed iterator is a
+    generator expression and pre_dispatch != 'all'. In that case a callback is
+    passed to the multiprocessing apply_async call and helper threads will
+    trigger the consumption of the source iterable in the dispatch_next
+    method.
+
+    """
+    def __init__(self, it):
+        self._lock = threading.Lock()
+        self._it = iter(it)
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        with self._lock:
+            return next(self._it)
+
+    # For Python 3 compat
+    __next__ = next
+
 
 
 ###############################################################################
@@ -168,6 +189,19 @@ class Parallel(Logger):
             at all, which is useful for debugging. For n_jobs below -1,
             (n_cpus + 1 + n_jobs) are used. Thus for n_jobs = -2, all
             CPUs but one are used.
+        backend: str or None
+            Specify the parallelization backend implementation.
+            Supported backends are:
+              - "multiprocessing" used by default, can induce some
+                communication and memory overhead when exchanging input and
+                output data with the with the worker Python processes.
+              - "threading" is a very low-overhead backend but it suffers
+                from the Python Global Interpreter Lock if the called function
+                relies a lot on Python objects. "threading" is mostly useful
+                when the execution bottleneck is a compiled extension that
+                explicitly releases the GIL (for instance a Cython loop wrapped
+                in a "with nogil" block or an expensive call to a library such
+                as NumPy).
         verbose: int, optional
             The verbosity level: if non zero, progress messages are
             printed. Above 50, the output is sent to stdout.
@@ -187,14 +221,13 @@ class Parallel(Logger):
             - the default system temporary folder that can be overridden
               with TMP, TMPDIR or TEMP environment variables, typically /tmp
               under Unix operating systems.
-        max_nbytes int, str, or None, optional, 1e6 (1MB) by default
+            Only active when backend="multiprocessing".
+        max_nbytes int, str, or None, optional, 100e6 (100MB) by default
             Threshold on the size of arrays passed to the workers that
             triggers automated memmory mapping in temp_folder. Can be an int
             in Bytes, or a human-readable string, e.g., '1M' for 1 megabyte.
             Use None to disable memmaping of large arrays.
-        verbose: int, optional
-            Make it possible to monitor how the communication of numpy arrays
-            with the subprocess is handled (pickling or memmaping)
+            Only active when backend="multiprocessing".
 
         Notes
         -----
@@ -318,9 +351,22 @@ class Parallel(Logger):
          [Parallel(n_jobs=2)]: Done   5 out of   6 | elapsed:    0.0s remaining:    0.0s
          [Parallel(n_jobs=2)]: Done   6 out of   6 | elapsed:    0.0s finished
     '''
-    def __init__(self, n_jobs=1, verbose=0, pre_dispatch='all',
-                 temp_folder=None, max_nbytes=1e6, mmap_mode='c'):
+    def __init__(self, n_jobs=1, backend=None, verbose=0, pre_dispatch='all',
+                 temp_folder=None, max_nbytes=100e6, mmap_mode='c'):
         self.verbose = verbose
+        self._mp_context = None
+        if backend is None:
+            backend = "multiprocessing"
+        elif hasattr(backend, 'Pool') and hasattr(backend, 'Lock'):
+            # Make it possible to pass a custom multiprocessing context as
+            # backend to change the start method to forkserver or spawn or
+            # preload modules on the forkserver helper process.
+            self._mp_context = backend
+            backend = "multiprocessing"
+        if backend not in VALID_BACKENDS:
+            raise ValueError("Invalid backend: %s, expected one of %r"
+                             % (backend, VALID_BACKENDS))
+        self.backend = backend
         self.n_jobs = n_jobs
         self.pre_dispatch = pre_dispatch
         self._pool = None
@@ -374,7 +420,7 @@ class Parallel(Logger):
             try:
                 # XXX: possible race condition shuffling the order of
                 # dispatches in the next two lines.
-                func, args, kwargs = next(self._iterable)
+                func, args, kwargs = next(self._original_iterable)
                 self.dispatch(func, args, kwargs)
                 self._dispatch_amount -= 1
             except ValueError:
@@ -382,7 +428,8 @@ class Parallel(Logger):
                     the dispatch will be done later.
                 """
             except StopIteration:
-                self._iterable = None
+                self._iterating = False
+                self._original_iterable = None
                 return
 
     def _print(self, msg, msg_args):
@@ -409,7 +456,7 @@ class Parallel(Logger):
 
         # This is heuristic code to print only 'verbose' times a messages
         # The challenge is that we may not know the queue length
-        if self._iterable:
+        if self._original_iterable:
             if _verbosity_filter(index, self.verbose):
                 return
             self._print('Done %3i jobs       | elapsed: %s',
@@ -440,7 +487,11 @@ class Parallel(Logger):
 
     def retrieve(self):
         self._output = list()
-        while self._jobs:
+        while self._iterating or len(self._jobs) > 0:
+            if len(self._jobs) == 0:
+                # Wait for an async callback to dispatch new jobs
+                time.sleep(0.01)
+                continue
             # We need to be careful: the job queue can be filling up as
             # we empty it
             if hasattr(self, '_lock'):
@@ -491,21 +542,37 @@ class Parallel(Logger):
         n_jobs = self.n_jobs
         if n_jobs == 0:
             raise ValueError('n_jobs == 0 in Parallel has no meaning')
-        if n_jobs < 0 and multiprocessing is not None:
-            n_jobs = max(multiprocessing.cpu_count() + 1 + n_jobs, 1)
+        if n_jobs < 0 and mp is not None:
+            n_jobs = max(mp.cpu_count() + 1 + n_jobs, 1)
 
         # The list of exceptions that we will capture
         self.exceptions = [TransportableException]
-        if n_jobs is None or multiprocessing is None or n_jobs == 1:
+        self._lock = threading.Lock()
+
+        # Whether or not to set an environment flag to track
+        # multiple process spawning
+        set_environ_flag = False
+        if (n_jobs is None or mp is None or n_jobs == 1):
             n_jobs = 1
             self._pool = None
-        else:
-            if multiprocessing.current_process()._daemonic:
+        elif self.backend == 'threading':
+            self._pool = ThreadPool(n_jobs)
+        elif self.backend == 'multiprocessing':
+            if mp.current_process().daemon:
                 # Daemonic processes cannot have children
                 n_jobs = 1
                 self._pool = None
                 warnings.warn(
-                    'Parallel loops cannot be nested, setting n_jobs=1',
+                    'Multiprocessing-backed parallel loops cannot be nested,'
+                    ' setting n_jobs=1',
+                    stacklevel=2)
+            elif threading.current_thread().name != 'MainThread':
+                # Prevent posix fork inside in non-main posix threads
+                n_jobs = 1
+                self._pool = None
+                warnings.warn(
+                    'Multiprocessing backed parallel loops cannot be nested'
+                    ' below threads, setting n_jobs=1',
                     stacklevel=2)
             else:
                 already_forked = int(os.environ.get('__JOBLIB_SPAWNED_PARALLEL__', 0))
@@ -523,18 +590,23 @@ class Parallel(Logger):
                 gc.collect()
 
                 # Set an environment variable to avoid infinite loops
-                os.environ['__JOBLIB_SPAWNED_PARALLEL__'] = '1'
-                self._pool = MemmapingPool(
-                    n_jobs, max_nbytes=self._max_nbytes,
+                set_environ_flag = True
+                poolargs = dict(
+                    max_nbytes=self._max_nbytes,
                     mmap_mode=self._mmap_mode,
                     temp_folder=self._temp_folder,
                     verbose=max(0, self.verbose - 50),
                     context_id=0,  # the pool is used only for one call
                 )
-                self._lock = threading.Lock()
+                if self._mp_context is not None:
+                    # Use Python 3.4+ multiprocessing context isolation
+                    poolargs['context'] = self._mp_context
+                self._pool = MemmapingPool(n_jobs, **poolargs)
                 # We are using multiprocessing, we also want to capture
                 # KeyboardInterrupts
                 self.exceptions.extend([KeyboardInterrupt, WorkerInterrupt])
+        else:
+            raise ValueError("Unsupported backend: %s" % self.backend)
 
         pre_dispatch = self.pre_dispatch
         if isinstance(iterable, Sized):
@@ -542,22 +614,40 @@ class Parallel(Logger):
             pre_dispatch = 'all'
 
         if pre_dispatch == 'all' or n_jobs == 1:
-            self._iterable = None
+            self._original_iterable = None
             self._pre_dispatch_amount = 0
         else:
-            self._iterable = iterable
+            # The dispatch mechanism relies on multiprocessing helper threads
+            # to dispatch tasks from the original iterable concurrently upon
+            # job completions. As Python generators are not thread-safe we
+            # need to wrap it with a lock
+            iterable = LockedIterator(iterable)
+            self._original_iterable = iterable
             self._dispatch_amount = 0
             if hasattr(pre_dispatch, 'endswith'):
                 pre_dispatch = eval(pre_dispatch)
             self._pre_dispatch_amount = pre_dispatch = int(pre_dispatch)
+
+            # The main thread will consume the first pre_dispatch items and
+            # the remaining items will later be lazily dispatched by async
+            # callbacks upon task completions
             iterable = itertools.islice(iterable, pre_dispatch)
 
         self._start_time = time.time()
         self.n_dispatched = 0
         try:
+            if set_environ_flag:
+                # Set an environment variable to avoid infinite loops
+                os.environ[JOBLIB_SPAWNED_PROCESS] = '1'
+            self._iterating = True
             for function, args, kwargs in iterable:
                 self.dispatch(function, args, kwargs)
 
+            if pre_dispatch == "all" or n_jobs == 1:
+                # The iterable was consumed all at once by the above for loop.
+                # No need to wait for async callbacks to trigger to
+                # consumption.
+                self._iterating = False
             self.retrieve()
             # Make sure that we get a last message telling us we are done
             elapsed_time = time.time() - self._start_time
@@ -571,7 +661,8 @@ class Parallel(Logger):
             if n_jobs > 1:
                 self._pool.close()
                 self._pool.terminate()  # terminate does a join()
-                os.environ.pop('__JOBLIB_SPAWNED_PARALLEL__', 0)
+                if self.backend == 'multiprocessing':
+                    os.environ.pop(JOBLIB_SPAWNED_PROCESS, 0)
             self._jobs = list()
         output = self._output
         self._output = None
