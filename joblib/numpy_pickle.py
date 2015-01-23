@@ -107,7 +107,8 @@ class NDArrayWrapper(object):
         "Reconstruct the array"
         filename = os.path.join(unpickler._dirname, self.filename)
         # Load the array from the disk
-        if unpickler.np.__version__ >= '1.3':
+        np_ver = [int(x) for x in unpickler.np.__version__.split('.', 2)[:2]]
+        if np_ver >= [1, 3]:
             array = unpickler.np.load(filename,
                             mmap_mode=unpickler.mmap_mode)
         else:
@@ -375,7 +376,7 @@ def dump(value, filename, compress=0, cache_size=100):
 
 
 def load(filename, mmap_mode=None):
-    """Reconstruct a Python object from a file persisted with joblib.load.
+    """Reconstruct a Python object from a file persisted with joblib.dump.
 
     Parameters
     -----------
@@ -383,7 +384,7 @@ def load(filename, mmap_mode=None):
         The name of the file from which to load the object
     mmap_mode: {None, 'r+', 'r', 'w+', 'c'}, optional
         If not None, the arrays are memory-mapped from the disk. This
-        mode has not effect for compressed files. Note that in this
+        mode has no effect for compressed files. Note that in this
         case the reconstructed object might not longer match exactly
         the originally pickled object.
 
