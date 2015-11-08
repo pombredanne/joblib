@@ -195,7 +195,12 @@ def format_records(records):   # , print_globals=False):
             # the abspath call will throw an OSError.  Just ignore it and
             # keep the original file string.
             pass
+
+        if file.endswith('.pyc'):
+            file = file[:-4] + '.py'
+
         link = file
+
         try:
             args, varargs, varkw, locals = inspect.getargvalues(frame)
         except:
@@ -280,9 +285,9 @@ def format_records(records):   # , print_globals=False):
             # signals exit of tokenizer
             pass
         except tokenize.TokenError as msg:
-            _m = ("An unexpected error occurred while tokenizing input\n"
+            _m = ("An unexpected error occurred while tokenizing input file %s\n"
                   "The following traceback may be corrupted or invalid\n"
-                  "The error message is: %s\n" % msg)
+                  "The error message is: %s\n" % (file, msg))
             print(_m)
 
         # prune names list of duplicates, but keep the right order
