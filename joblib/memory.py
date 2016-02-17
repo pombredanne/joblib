@@ -341,7 +341,7 @@ class MemorizedFunc(Logger):
     #-------------------------------------------------------------------------
 
     def __init__(self, func, cachedir, ignore=None, mmap_mode=None,
-                 compress=False, verbose=1, timestamp=None):
+                 compress=False, verbose=1, timestamp=None, expires_after=None):
         """
             Parameters
             ----------
@@ -366,6 +366,9 @@ class MemorizedFunc(Logger):
             timestamp: float, optional
                 The reference time from which times in tracing messages
                 are reported.
+            expires_after: float, optional
+                If provided, cached results older than this number of 
+                seconds are discarded
         """
         Logger.__init__(self)
         self.mmap_mode = mmap_mode
@@ -383,6 +386,7 @@ class MemorizedFunc(Logger):
         if timestamp is None:
             timestamp = time.time()
         self.timestamp = timestamp
+        self.expires_after = expires_after
         mkdirp(self.cachedir)
         try:
             functools.update_wrapper(self, func)
@@ -418,6 +422,7 @@ class MemorizedFunc(Logger):
         # Compare the function code with the previous to see if the
         # function code has changed
         output_dir, argument_hash = self._get_output_dir(*args, **kwargs)
+        self._clear_if_expired(output_dir)
         metadata = None
         # FIXME: The statements below should be try/excepted
         if not (self._check_previous_func_code(stacklevel=4) and
@@ -651,6 +656,19 @@ class MemorizedFunc(Logger):
         self.clear(warn=True)
         return False
 
+    def _path_expired(self, output_dir):
+        """Check if result is older than expires_after
+        """
+        if self.expires_after is None or not os.path.exists(output_dir):
+            return False
+        return time.time()-os.path.getmtime(output_dir) > self.expires_after
+
+    def _clear_if_expired(self, output_dir):
+        """Clear the output directory if it is too old
+        """
+        if self._path_expired(output_dir):
+            shutil.rmtree(output_dir, ignore_errors=True)
+
     def clear(self, warn=True):
         """ Empty the function's cache.
         """
@@ -830,7 +848,7 @@ class Memory(Logger):
             mkdirp(self.cachedir)
 
     def cache(self, func=None, ignore=None, verbose=None,
-                        mmap_mode=False):
+                        mmap_mode=False, expires_after=None):
         """ Decorates the given function func to only compute its return
             value for input arguments not cached on disk.
 
@@ -847,6 +865,9 @@ class Memory(Logger):
                 The memmapping mode used when loading from cache
                 numpy arrays. See numpy.load for the meaning of the
                 arguments. By default that of the memory object is used.
+            expires_after: float, optional
+                Cached results older than this number of seconds are 
+                discarded and the function is re-evaluated
 
             Returns
             -------
@@ -860,7 +881,8 @@ class Memory(Logger):
             # Partial application, to be able to specify extra keyword
             # arguments in decorators
             return functools.partial(self.cache, ignore=ignore,
-                                     verbose=verbose, mmap_mode=mmap_mode)
+                                     verbose=verbose, mmap_mode=mmap_mode, 
+                                     expires_after=expires_after)
         if self.cachedir is None:
             return NotMemorizedFunc(func)
         if verbose is None:
@@ -874,7 +896,8 @@ class Memory(Logger):
                                    ignore=ignore,
                                    compress=self.compress,
                                    verbose=verbose,
-                                   timestamp=self.timestamp)
+                                   timestamp=self.timestamp,
+                                   expires_after = expires_after)
 
     def clear(self, warn=True):
         """ Erase the complete cache directory.
