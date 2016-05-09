@@ -1,6 +1,21 @@
 Latest changes
 ===============
 
+Release 0.10.0
+--------------
+
+Niels Zeilemaker and Olivier Grisel
+
+    Refactored joblib.Parallel to enable the registration of custom
+    computational backends.
+    https://github.com/joblib/joblib/pull/306
+    Note the API to register custom backends is considered experimental
+    and subject to change without deprecation.
+
+Antony Lee
+
+    ENH: joblib.dump/load now accept pathlib.Path objects as filenames.
+
 Release 0.9.4
 -------------
 
