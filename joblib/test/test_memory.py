@@ -723,3 +723,22 @@ def func_with_signature(a: int, b: float) -> float:
         func_cached = mem.cache(func_with_signature)
 
         nose.tools.assert_equal(func_cached(1, 2.), 3.)
+
+
+def test_memory_expires_after():
+    "Test expiry of old results"
+    memory = Memory(cachedir=env['dir'], verbose=0)
+    
+    @memory.cache(expires_after=1.0, ignore=["d"])
+    def f(x, d):
+        d["run"] = True
+        return x*2
+
+    d1, d2, d3 = {"run": False}, {"run": False}, {"run": False}
+    first_result = f(2, d1)
+    second_result = f(2, d2)
+    import time; time.sleep(1.1)
+    third_result = f(2, d3)
+    nose.tools.assert_true(d1["run"])
+    nose.tools.assert_true(not d2["run"])
+    nose.tools.assert_true(d3["run"])
