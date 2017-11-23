@@ -13,6 +13,7 @@ import sys
 import types
 import struct
 import io
+import decimal
 
 from ._compat import _bytes_or_unicode, PY3_OR_LATER
 
@@ -35,7 +36,7 @@ class _ConsistentSet(object):
             # This fails on python 3 when elements are unorderable
             # but we keep it in a try as it's faster.
             self._sequence = sorted(set_sequence)
-        except TypeError:
+        except (TypeError, decimal.InvalidOperation):
             # If elements are unorderable, sorting them using their hash.
             # This is slower but works in any case.
             self._sequence = sorted((hash(e) for e in set_sequence))
@@ -189,7 +190,11 @@ class NumpyHasher(Hasher):
         if isinstance(obj, self.np.ndarray) and not obj.dtype.hasobject:
             # Compute a hash of the object
             # The update function of the hash requires a c_contiguous buffer.
-            if obj.flags.c_contiguous:
+            if obj.shape == ():
+                # 0d arrays need to be flattened because viewing them as bytes
+                # raises a ValueError exception.
+                obj_c_contiguous = obj.flatten()
+            elif obj.flags.c_contiguous:
                 obj_c_contiguous = obj
             elif obj.flags.f_contiguous:
                 obj_c_contiguous = obj.T

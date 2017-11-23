@@ -1,8 +1,113 @@
 Latest changes
 ===============
 
+Development
+-----------
+
+Olivier Grisel
+
+    Make Memory.cache robust to PermissionError (errno 13) under Windows
+    when run in combination with Parallel.
+
+
+Release 0.11
+------------
+
+Alexandre Abadie
+
+    Remove support for python 2.6
+
+Alexandre Abadie
+
+    Remove deprecated `format_signature`, `format_call` and `load_output`
+    functions from Memory API.
+
+Loïc Estève
+
+    Add initial implementation of LRU cache cleaning. You can specify
+    the size limit of a ``Memory`` object via the ``bytes_limit``
+    parameter and then need to clean explicitly the cache via the
+    ``Memory.reduce_size`` method.
+
+Olivier Grisel
+
+    Make the multiprocessing backend work even when the name of the main
+    thread is not the Python default. Thanks to Roman Yurchak for the
+    suggestion.
+
+Karan Desai
+
+    pytest is used to run the tests instead of nosetests.
+    ``python setup.py test`` or ``python setup.py nosetests`` do not work
+    anymore, run ``pytest joblib`` instead.
+
+Loïc Estève
+
+    An instance of ``joblib.ParallelBackendBase`` can be passed into
+    the ``parallel`` argument in ``joblib.Parallel``.
+
+
+Loïc Estève
+
+    Fix handling of memmap objects with offsets greater than
+    mmap.ALLOCATIONGRANULARITY in ``joblib.Parrallel``. See
+    https://github.com/joblib/joblib/issues/451 for more details.
+
+Loïc Estève
+
+    Fix performance regression in ``joblib.Parallel`` with
+    n_jobs=1. See https://github.com/joblib/joblib/issues/483 for more
+    details.
+
+Loïc Estève
+
+    Fix race condition when a function cached with
+    ``joblib.Memory.cache`` was used inside a ``joblib.Parallel``. See
+    https://github.com/joblib/joblib/issues/490 for more details.
+
+Release 0.10.3
+--------------
+
+Loïc Estève
+
+    Fix tests when multiprocessing is disabled via the
+    JOBLIB_MULTIPROCESSING environment variable.
+
+harishmk
+
+    Remove warnings in nested Parallel objects when the inner Parallel
+    has n_jobs=1. See https://github.com/joblib/joblib/pull/406 for
+    more details.
+
+Release 0.10.2
+--------------
+
+Loïc Estève
+
+    FIX a bug in stack formatting when the error happens in a compiled
+    extension. See https://github.com/joblib/joblib/pull/382 for more
+    details.
+
+Vincent Latrouite
+
+    FIX a bug in the constructor of BinaryZlibFile that would throw an
+    exception when passing unicode filename (Python 2 only).
+    See https://github.com/joblib/joblib/pull/384 for more details.
+
+Olivier Grisel
+
+    Expose :class:`joblib.parallel.ParallelBackendBase` and
+    :class:`joblib.parallel.AutoBatchingMixin` in the public API to
+    make them officially re-usable by backend implementers.
+
+
 Release 0.10.0
 --------------
+
+Alexandre Abadie
+
+    ENH: joblib.dump/load now accept file-like objects besides filenames.
+    https://github.com/joblib/joblib/pull/351 for more details.
 
 Niels Zeilemaker and Olivier Grisel
 
@@ -28,6 +133,13 @@ Antony Lee
 
     ENH: joblib.dump/load now accept pathlib.Path objects as filenames.
     https://github.com/joblib/joblib/pull/316 for more details.
+
+Olivier Grisel
+
+    Workaround for "WindowsError: [Error 5] Access is denied" when trying to
+    terminate a multiprocessing pool under Windows:
+    https://github.com/joblib/joblib/issues/354
+
 
 Release 0.9.4
 -------------
@@ -181,7 +293,7 @@ Release 0.8.2
 2014-06-30
 Olivier Grisel
 
-    BUG: use mmap_mode='r' by default in Parallel and MemmapingPool
+    BUG: use mmap_mode='r' by default in Parallel and MemmappingPool
 
     The former default of mmap_mode='c' (copy-on-write) caused
     problematic use of the paging file under Windows.

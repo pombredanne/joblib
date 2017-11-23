@@ -34,3 +34,9 @@ doc/CHANGES.rst
 doc/README.rst
 # Coverage report
 .coverage
+
+# pytest cache on failure
+.cache
+
+# Generated ctags
+tags

@@ -6,41 +6,23 @@ import sys
 import joblib
 
 # For some commands, use setuptools
-if len(set(('develop', 'sdist', 'release', 'bdist_egg', 'bdist_rpm',
-           'bdist', 'bdist_dumb', 'bdist_wininst', 'install_egg_info',
-           'build_sphinx', 'egg_info', 'easy_install', 'upload',
+if len(set(('develop', 'sdist', 'release', 'bdist', 'bdist_egg', 'bdist_dumb',
+            'bdist_rpm', 'bdist_wheel', 'bdist_wininst', 'install_egg_info',
+            'build_sphinx', 'egg_info', 'easy_install', 'upload',
             )).intersection(sys.argv)) > 0:
-    from setupegg import extra_setuptools_args
+    import setuptools
 
-# extra_setuptools_args is injected by the setupegg.py script, for
-# running the setup with setuptools.
-if not 'extra_setuptools_args' in globals():
-    extra_setuptools_args = dict()
-
-# if nose available, provide test command
-try:
-    from nose.commands import nosetests
-    cmdclass = extra_setuptools_args.pop('cmdclass', {})
-    cmdclass['test'] = nosetests
-    cmdclass['nosetests'] = nosetests
-    extra_setuptools_args['cmdclass'] = cmdclass
-except ImportError:
-    pass
+extra_setuptools_args = {}
 
 
 if __name__ == '__main__':
-    # Protect the call to the setup function to prevent a fork-bomb
-    # when running the tests with:
-    # python setup.py nosetests
-
     setup(name='joblib',
           version=joblib.__version__,
           author='Gael Varoquaux',
           author_email='gael.varoquaux@normalesup.org',
           url='http://pythonhosted.org/joblib/',
-          description="""
-Lightweight pipelining: using Python functions as pipeline jobs.
-""",
+          description=("Lightweight pipelining: using Python functions "
+                       "as pipeline jobs."),
           long_description=joblib.__doc__,
           license='BSD',
           classifiers=[
@@ -51,11 +33,12 @@ Lightweight pipelining: using Python functions as pipeline jobs.
               'Intended Audience :: Education',
               'License :: OSI Approved :: BSD License',
               'Operating System :: OS Independent',
-              'Programming Language :: Python :: 2.6',
               'Programming Language :: Python :: 2.7',
               'Programming Language :: Python :: 3',
               'Programming Language :: Python :: 3.3',
               'Programming Language :: Python :: 3.4',
+              'Programming Language :: Python :: 3.5',
+              'Programming Language :: Python :: 3.6',
               'Topic :: Scientific/Engineering',
               'Topic :: Utilities',
               'Topic :: Software Development :: Libraries',
@@ -69,5 +52,7 @@ Lightweight pipelining: using Python functions as pipeline jobs.
                                         'data/*.pkl',
                                         'data/*.npy',
                                         'data/*.npy.z']},
-          packages=['joblib', 'joblib.test', 'joblib.test.data'],
+          packages=['joblib', 'joblib.test', 'joblib.test.data',
+                    'joblib.externals', 'joblib.externals.cloudpickle',
+                    'joblib.externals.loky', 'joblib.externals.loky.backend'],
           **extra_setuptools_args)

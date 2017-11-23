@@ -31,9 +31,8 @@ sys.path.append(os.path.abspath('./sphinxext'))
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 
-extensions = ['sphinx.ext.autodoc', 'sphinx.ext.pngmath', 'numpydoc',
-              'phantom_import', 'sphinx.ext.autosummary',
-              'sphinx.ext.coverage']
+extensions = ['sphinx.ext.autodoc', 'sphinx.ext.imgmath', 'numpydoc',
+              'sphinx.ext.autosummary', 'sphinx.ext.coverage']
 
 autosummary_generate = True
 
@@ -127,7 +126,7 @@ trim_doctest_flags = True
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+# html_static_path = ['_static']
 
 # If not '', a 'Last updated on:' timestamp is inserted at every page bottom,
 # using the given strftime format.
@@ -202,10 +201,7 @@ latex_documents = [
 # If false, no module index is generated.
 #latex_use_modindex = True
 
-# default is used to be compatible with both sphinx 1.2.3 and sphinx
-# 1.3.1. If we want to support only 1.3.1 'classic' can be used
-# instead
-html_theme = 'default'
+html_theme = 'classic'
 
 html_theme_options = {
 #    "bgcolor": "#fff",
@@ -236,3 +232,7 @@ except IOError:
     pass
     # This fails during the tesing, as the code is ran in a different
     # directory
+
+numpydoc_show_class_members = False
+
+suppress_warnings = ['image.nonlocal_uri']

@@ -11,11 +11,16 @@ import inspect
 import warnings
 import re
 import os
+import collections
 
 from ._compat import _basestring
 from .logger import pformat
 from ._memory_helpers import open_py_source
 from ._compat import PY3_OR_LATER
+
+full_argspec_fields = ('args varargs varkw defaults kwonlyargs '
+                       'kwonlydefaults annotations')
+full_argspec_type = collections.namedtuple('FullArgSpec', full_argspec_fields)
 
 
 def get_func_code(func):
@@ -50,8 +55,7 @@ def get_func_code(func):
             line_no = 1
             if source_file.startswith('<doctest '):
                 source_file, line_no = re.match(
-                            '\<doctest (.*\.rst)\[(.*)\]\>',
-                            source_file).groups()
+                    r'\<doctest (.*\.rst)\[(.*)\]\>', source_file).groups()
                 line_no = int(line_no)
                 source_file = '<doctest %s>' % source_file
             return source_code, source_file, line_no
@@ -170,18 +174,13 @@ def getfullargspec(func):
         return inspect.getfullargspec(func)
     except AttributeError:
         arg_spec = inspect.getargspec(func)
-        import collections
-        tuple_fields = ('args varargs varkw defaults kwonlyargs '
-                        'kwonlydefaults annotations')
-        tuple_type = collections.namedtuple('FullArgSpec', tuple_fields)
-
-        return tuple_type(args=arg_spec.args,
-                          varargs=arg_spec.varargs,
-                          varkw=arg_spec.keywords,
-                          defaults=arg_spec.defaults,
-                          kwonlyargs=[],
-                          kwonlydefaults=None,
-                          annotations={})
+        return full_argspec_type(args=arg_spec.args,
+                                 varargs=arg_spec.varargs,
+                                 varkw=arg_spec.keywords,
+                                 defaults=arg_spec.defaults,
+                                 kwonlyargs=[],
+                                 kwonlydefaults=None,
+                                 annotations={})
 
 
 def _signature_str(function_name, arg_spec):
@@ -191,7 +190,7 @@ def _signature_str(function_name, arg_spec):
     arg_spec_for_format = arg_spec[:7 if PY3_OR_LATER else 4]
 
     arg_spec_str = inspect.formatargspec(*arg_spec_for_format)
-    return '{0}{1}'.format(function_name, arg_spec_str)
+    return '{}{}'.format(function_name, arg_spec_str)
 
 
 def _function_called_str(function_name, args, kwargs):
@@ -312,9 +311,16 @@ def filter_args(func, ignore_lst, args=(), kwargs=dict()):
                              "function %s"
                              % (item,
                                 _signature_str(name, arg_spec))
-            )
+                             )
     # XXX: Return a sorted list of pairs?
     return arg_dict
+
+
+def _format_arg(arg):
+    formatted_arg = pformat(arg, indent=2)
+    if len(formatted_arg) > 1500:
+        formatted_arg = '%s...' % formatted_arg[:700]
+    return formatted_arg
 
 
 def format_signature(func, *args, **kwargs):
@@ -329,14 +335,12 @@ def format_signature(func, *args, **kwargs):
     arg_str = list()
     previous_length = 0
     for arg in args:
-        arg = pformat(arg, indent=2)
-        if len(arg) > 1500:
-            arg = '%s...' % arg[:700]
+        formatted_arg = _format_arg(arg)
         if previous_length > 80:
-            arg = '\n%s' % arg
-        previous_length = len(arg)
-        arg_str.append(arg)
-    arg_str.extend(['%s=%s' % (v, pformat(i)) for v, i in kwargs.items()])
+            formatted_arg = '\n%s' % formatted_arg
+        previous_length = len(formatted_arg)
+        arg_str.append(formatted_arg)
+    arg_str.extend(['%s=%s' % (v, _format_arg(i)) for v, i in kwargs.items()])
     arg_str = ', '.join(arg_str)
 
     signature = '%s(%s)' % (name, arg_str)
@@ -352,4 +356,4 @@ def format_call(func, args, kwargs, object_name="Memory"):
                                           path, signature)
     return msg
     # XXX: Not using logging framework
-    #self.debug(msg)
+    # self.debug(msg)

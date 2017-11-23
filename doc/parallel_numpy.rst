@@ -1,5 +1,12 @@
-Working with numerical data in shared memory (memmaping)
-========================================================
+..
+    For doctests:
+
+    >>> import sys
+    >>> setup = getfixture('parallel_numpy_fixture')
+    >>> fixture = setup(sys.modules[__name__])
+
+Working with numerical data in shared memory (memmapping)
+=========================================================
 
 By default the workers of the pool are real Python processes forked using the
 ``multiprocessing`` module of the Python standard library when ``n_jobs != 1``.
@@ -59,7 +66,7 @@ let's allocate a large array in the memory of the parent process::
 
   >>> large_array = np.ones(int(1e6))
 
-Dump it to a local file for memmaping::
+Dump it to a local file for memmapping::
 
   >>> import tempfile
   >>> import os

@@ -1,10 +1,9 @@
 
 
-all: test 
+all: test
 
 test:
-	nosetests
+	pytest joblib --timeout 15 -vl
 
 test-no-multiprocessing:
-	export JOBLIB_MULTIPROCESSING=0 && nosetests
-
+	export JOBLIB_MULTIPROCESSING=0 && pytest joblib
